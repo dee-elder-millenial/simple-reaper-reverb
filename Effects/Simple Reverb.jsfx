@@ -1,0 +1,187 @@
+desc:Simple Reverb
+// A lightweight stereo Schroeder-style reverb for REAPER JSFX.
+// Includes room size, damping, pre-delay, stereo width, wet/dry mix, and output trim.
+// Version: 1.0.0
+// License: MIT
+
+slider1:35<0,100,1>Room Size
+slider2:45<0,100,1>Damping
+slider3:20<0,250,1>Pre-delay (ms)
+slider4:38<0,100,1>Wet
+slider5:100<0,100,1>Dry
+slider6:80<0,100,1>Width
+slider7:0<-24,12,0.1>Output (dB)
+
+@init
+max_delay_samples = 262144;
+
+predelay_l = 0;
+predelay_r = predelay_l + max_delay_samples;
+
+comb1_l = predelay_r + max_delay_samples;
+comb2_l = comb1_l + max_delay_samples;
+comb3_l = comb2_l + max_delay_samples;
+comb4_l = comb3_l + max_delay_samples;
+comb1_r = comb4_l + max_delay_samples;
+comb2_r = comb1_r + max_delay_samples;
+comb3_r = comb2_r + max_delay_samples;
+comb4_r = comb3_r + max_delay_samples;
+
+ap1_l = comb4_r + max_delay_samples;
+ap2_l = ap1_l + max_delay_samples;
+ap1_r = ap2_l + max_delay_samples;
+ap2_r = ap1_r + max_delay_samples;
+
+freembuf(ap2_r + max_delay_samples);
+memset(0, 0, ap2_r + max_delay_samples);
+
+pd_pos = 0;
+c1_pos_l = 0;
+c2_pos_l = 0;
+c3_pos_l = 0;
+c4_pos_l = 0;
+c1_pos_r = 0;
+c2_pos_r = 0;
+c3_pos_r = 0;
+c4_pos_r = 0;
+ap1_pos_l = 0;
+ap2_pos_l = 0;
+ap1_pos_r = 0;
+ap2_pos_r = 0;
+
+c1_lp_l = 0;
+c2_lp_l = 0;
+c3_lp_l = 0;
+c4_lp_l = 0;
+c1_lp_r = 0;
+c2_lp_r = 0;
+c3_lp_r = 0;
+c4_lp_r = 0;
+
+function advance(position, length) (
+  position += 1;
+  position >= length ? position = 0;
+  position;
+);
+
+function allpass(input, base, position, length, gain) local(buffered, output) (
+  buffered = base[position];
+  output = -input + buffered;
+  base[position] = input + buffered * gain;
+  output;
+);
+
+@slider
+room = slider1 / 100;
+damp = slider2 / 100;
+predelay_ms = slider3;
+wet = slider4 / 100;
+dry = slider5 / 100;
+width = slider6 / 100;
+out_gain = 10 ^ (slider7 / 20);
+
+feedback = 0.68 + room * 0.24;
+damp_mix = 0.05 + damp * 0.85;
+
+predelay_len = max(1, min(max_delay_samples - 1, floor(srate * predelay_ms / 1000)));
+
+scale = 0.72 + room * 0.95;
+c1_len_l = min(max_delay_samples - 1, floor(1116 * scale * srate / 44100));
+c2_len_l = min(max_delay_samples - 1, floor(1277 * scale * srate / 44100));
+c3_len_l = min(max_delay_samples - 1, floor(1422 * scale * srate / 44100));
+c4_len_l = min(max_delay_samples - 1, floor(1557 * scale * srate / 44100));
+c1_len_r = min(max_delay_samples - 1, floor(1188 * scale * srate / 44100));
+c2_len_r = min(max_delay_samples - 1, floor(1356 * scale * srate / 44100));
+c3_len_r = min(max_delay_samples - 1, floor(1491 * scale * srate / 44100));
+c4_len_r = min(max_delay_samples - 1, floor(1617 * scale * srate / 44100));
+
+ap1_len_l = min(max_delay_samples - 1, floor(556 * srate / 44100));
+ap2_len_l = min(max_delay_samples - 1, floor(441 * srate / 44100));
+ap1_len_r = min(max_delay_samples - 1, floor(579 * srate / 44100));
+ap2_len_r = min(max_delay_samples - 1, floor(464 * srate / 44100));
+
+pd_pos >= predelay_len ? pd_pos = 0;
+c1_pos_l >= c1_len_l ? c1_pos_l = 0;
+c2_pos_l >= c2_len_l ? c2_pos_l = 0;
+c3_pos_l >= c3_len_l ? c3_pos_l = 0;
+c4_pos_l >= c4_len_l ? c4_pos_l = 0;
+c1_pos_r >= c1_len_r ? c1_pos_r = 0;
+c2_pos_r >= c2_len_r ? c2_pos_r = 0;
+c3_pos_r >= c3_len_r ? c3_pos_r = 0;
+c4_pos_r >= c4_len_r ? c4_pos_r = 0;
+ap1_pos_l >= ap1_len_l ? ap1_pos_l = 0;
+ap2_pos_l >= ap2_len_l ? ap2_pos_l = 0;
+ap1_pos_r >= ap1_len_r ? ap1_pos_r = 0;
+ap2_pos_r >= ap2_len_r ? ap2_pos_r = 0;
+
+@sample
+in_l = spl0;
+in_r = spl1;
+mono_in = (in_l + in_r) * 0.5;
+
+pre_l = predelay_l[pd_pos];
+pre_r = predelay_r[pd_pos];
+predelay_l[pd_pos] = mono_in;
+predelay_r[pd_pos] = mono_in;
+pd_pos = advance(pd_pos, predelay_len);
+
+c1_out_l = comb1_l[c1_pos_l];
+c1_lp_l = c1_out_l + (c1_lp_l - c1_out_l) * damp_mix;
+comb1_l[c1_pos_l] = pre_l + c1_lp_l * feedback;
+c1_pos_l = advance(c1_pos_l, c1_len_l);
+
+c2_out_l = comb2_l[c2_pos_l];
+c2_lp_l = c2_out_l + (c2_lp_l - c2_out_l) * damp_mix;
+comb2_l[c2_pos_l] = pre_l + c2_lp_l * feedback;
+c2_pos_l = advance(c2_pos_l, c2_len_l);
+
+c3_out_l = comb3_l[c3_pos_l];
+c3_lp_l = c3_out_l + (c3_lp_l - c3_out_l) * damp_mix;
+comb3_l[c3_pos_l] = pre_l + c3_lp_l * feedback;
+c3_pos_l = advance(c3_pos_l, c3_len_l);
+
+c4_out_l = comb4_l[c4_pos_l];
+c4_lp_l = c4_out_l + (c4_lp_l - c4_out_l) * damp_mix;
+comb4_l[c4_pos_l] = pre_l + c4_lp_l * feedback;
+c4_pos_l = advance(c4_pos_l, c4_len_l);
+
+c1_out_r = comb1_r[c1_pos_r];
+c1_lp_r = c1_out_r + (c1_lp_r - c1_out_r) * damp_mix;
+comb1_r[c1_pos_r] = pre_r + c1_lp_r * feedback;
+c1_pos_r = advance(c1_pos_r, c1_len_r);
+
+c2_out_r = comb2_r[c2_pos_r];
+c2_lp_r = c2_out_r + (c2_lp_r - c2_out_r) * damp_mix;
+comb2_r[c2_pos_r] = pre_r + c2_lp_r * feedback;
+c2_pos_r = advance(c2_pos_r, c2_len_r);
+
+c3_out_r = comb3_r[c3_pos_r];
+c3_lp_r = c3_out_r + (c3_lp_r - c3_out_r) * damp_mix;
+comb3_r[c3_pos_r] = pre_r + c3_lp_r * feedback;
+c3_pos_r = advance(c3_pos_r, c3_len_r);
+
+c4_out_r = comb4_r[c4_pos_r];
+c4_lp_r = c4_out_r + (c4_lp_r - c4_out_r) * damp_mix;
+comb4_r[c4_pos_r] = pre_r + c4_lp_r * feedback;
+c4_pos_r = advance(c4_pos_r, c4_len_r);
+
+verb_l = (c1_out_l + c2_out_l + c3_out_l + c4_out_l) * 0.25;
+verb_r = (c1_out_r + c2_out_r + c3_out_r + c4_out_r) * 0.25;
+
+verb_l = allpass(verb_l, ap1_l, ap1_pos_l, ap1_len_l, 0.5);
+ap1_pos_l = advance(ap1_pos_l, ap1_len_l);
+verb_l = allpass(verb_l, ap2_l, ap2_pos_l, ap2_len_l, 0.5);
+ap2_pos_l = advance(ap2_pos_l, ap2_len_l);
+
+verb_r = allpass(verb_r, ap1_r, ap1_pos_r, ap1_len_r, 0.5);
+ap1_pos_r = advance(ap1_pos_r, ap1_len_r);
+verb_r = allpass(verb_r, ap2_r, ap2_pos_r, ap2_len_r, 0.5);
+ap2_pos_r = advance(ap2_pos_r, ap2_len_r);
+
+mid = (verb_l + verb_r) * 0.5;
+side = (verb_l - verb_r) * 0.5 * width;
+wet_l = mid + side;
+wet_r = mid - side;
+
+spl0 = (in_l * dry + wet_l * wet) * out_gain;
+spl1 = (in_r * dry + wet_r * wet) * out_gain;
